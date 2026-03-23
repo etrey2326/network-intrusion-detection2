@@ -48,11 +48,25 @@ network-intrusion-detection/
 
 ## Results
 
-*Coming soon — will include accuracy, F1 scores, and confusion matrices for each model.*
+## Results
+
+All three models were evaluated on a held-out test set of 508,010 network connections.
+
+| Model | Accuracy | F1 Score | Precision | Recall |
+|---|---|---|---|---|
+| Random Forest | 99.59% | 98.38% | 98.49% | 98.27% |
+| XGBoost | 99.49% | 97.96% | 98.23% | 97.70% |
+| Logistic Regression | 98.81% | 95.39% | 93.91% | 96.92% |
+
+**Random Forest** achieved the highest F1 score, correctly identifying 98.27% of attacks
+with a false positive rate under 2%. Logistic Regression performed surprisingly well as
+a baseline, suggesting strong linear separability in the feature space.
+
+Confusion matrices and full classification reports are available in the `outputs/` folder.
 
 ---
 
 ## Author
 
-Your Name — Indiana University, Data Science '27  
-[LinkedIn](#) · [GitHub](#)
+Evan Reynolds — Indiana University, Data Science '28  
+[LinkedIn](www.linkedin.com/in/evantreynolds) · [GitHub](etrey2326)
