@@ -1,132 +1,132 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import os
 
-# ── 1. Load raw data ──────────────────────────────────────────────────────────
+# load the first csv file
+df1 = pd.read_csv("data/raw/UNSW-NB15_1.csv", header=None, low_memory=False)
+print("loaded file 1")
 
-def load_data(raw_dir="data/raw"):
-    files = [
-        os.path.join(os.path.normpath(raw_dir), f"UNSW-NB15_{i}.csv")
-        for i in range(1, 5)
-    ]
+# load the second csv file
+df2 = pd.read_csv("data/raw/UNSW-NB15_2.csv", header=None, low_memory=False)
+print("loaded file 2")
 
-    df = pd.concat(
-        [pd.read_csv(f, header=None, low_memory=False) for f in files],
-        ignore_index=True
-    )
+# load the third csv file
+df3 = pd.read_csv("data/raw/UNSW-NB15_3.csv", header=None, low_memory=False)
+print("loaded file 3")
 
-    features = pd.read_csv(
-        os.path.join(os.path.normpath(raw_dir), "UNSW-NB15_features.csv"),
-        encoding="latin-1"
-    )
-    df.columns = features["Name"].tolist()
+# load the fourth csv file
+df4 = pd.read_csv("data/raw/UNSW-NB15_4.csv", header=None, low_memory=False)
+print("loaded file 4")
 
-    print(f"Loaded {len(df):,} rows and {len(df.columns)} columns.")
-    print(f"Class distribution:\n{df['Label'].value_counts()}")
-    return df
+# combine all 4 files into one big dataframe
+df = pd.concat([df1, df2, df3, df4], ignore_index=True)
+print("combined all files")
+print("total rows:", len(df))
 
+# load the column names from the features file
+features = pd.read_csv("data/raw/UNSW-NB15_features.csv", encoding="latin-1")
+col_names = features["Name"].tolist()
+df.columns = col_names
+print("added column names")
 
-# ── 2. Split features and target ──────────────────────────────────────────────
+# separate the label column from the features
+# we do this first so we dont accidentally mess up the label
+y = df["Label"]
+y = y.astype(int)
+X = df.drop(columns=["Label"])
+print("separated X and y")
+print("X shape:", X.shape)
+print("y value counts:")
+print(y.value_counts())
 
-def split_features_target(df, target_col="Label"):
-    """
-    Separates the DataFrame into X (features) and y (target label).
-    We do this FIRST before any cleaning or encoding so the Label
-    column is never accidentally dropped or transformed.
-    """
-    X = df.drop(columns=[target_col])
-    y = df[target_col].astype(int)
-    return X, y
+# drop columns that are just IDs and not useful for prediction
+# srcip and dstip are ip addresses
+# sport and dsport are port numbers
+if "srcip" in X.columns:
+    X = X.drop(columns=["srcip"])
+if "dstip" in X.columns:
+    X = X.drop(columns=["dstip"])
+if "sport" in X.columns:
+    X = X.drop(columns=["sport"])
+if "dsport" in X.columns:
+    X = X.drop(columns=["dsport"])
+print("dropped id columns")
 
+# replace infinity values with NaN
+X = X.replace(np.inf, np.nan)
+X = X.replace(-np.inf, np.nan)
 
-# ── 3. Clean the data ─────────────────────────────────────────────────────────
+# drop columns where more than 50% of values are missing
+# dropping entire rows would remove too much normal traffic
+cols_before = X.shape[1]
+X = X.loc[:, X.isnull().mean() < 0.5]
+print("dropped", cols_before - X.shape[1], "columns with more than 50% missing values")
 
-def clean_data(X, y):
-    """
-    Drops identifier columns, removes rows with missing or infinite
-    values, and keeps X and y aligned throughout.
-    """
-    cols_to_drop = ["srcip", "dstip", "sport", "dsport"]
-    X = X.drop(columns=[c for c in cols_to_drop if c in X.columns])
+# fill remaining missing values with the column median
+# this keeps all rows so both normal and attack traffic stays in the dataset
+X = X.fillna(X.median(numeric_only=True))
 
-    X.replace([np.inf, -np.inf], np.nan, inplace=True)
+# fill any remaining text columns with the most common value
+for col in X.select_dtypes(include=["object"]).columns:
+    X[col] = X[col].fillna(X[col].mode()[0])
 
-    before = len(X)
-    mask = X.notna().all(axis=1)
-    X = X[mask]
-    y = y[mask]
-    print(f"Dropped {before - len(X):,} rows with missing/infinite values.")
-    print(f"Class distribution after cleaning:\n{y.value_counts()}")
+print("rows after cleaning:", len(X))
+print("y value counts after cleaning:")
+print(y.value_counts())
 
-    return X, y
-
-
-# ── 4. Encode categorical columns ─────────────────────────────────────────────
-
-def encode_categoricals(X):
-    categorical_cols = X.select_dtypes(include=["object"]).columns.tolist()
-    le = LabelEncoder()
-    for col in categorical_cols:
+# encode categorical columns (text columns) to numbers
+# machine learning models cant handle text
+le = LabelEncoder()
+for col in X.columns:
+    if X[col].dtype == "object":
         X[col] = le.fit_transform(X[col].astype(str))
-        print(f"  Encoded: {col}")
-    return X
+        print("encoded column:", col)
 
+# reset the index so row numbers are clean before saving
+X = X.reset_index(drop=True)
+y = y.reset_index(drop=True)
 
-# ── 5. Scale features ─────────────────────────────────────────────────────────
+# split data into training and test sets
+# 80% for training, 20% for testing
+# random_state=42 so results are reproducible
+# stratify=y so both sets have the same class ratio
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+print("train size:", len(X_train))
+print("test size:", len(X_test))
+print("y_train value counts:")
+print(y_train.value_counts())
 
-def scale_features(X_train, X_test):
-    """
-    Applies StandardScaler so all features have mean=0 and std=1.
-    We fit ONLY on training data to prevent data leakage.
-    """
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    return X_train_scaled, X_test_scaled, scaler
+# scale the features so they all have mean 0 and std 1
+# important: only fit the scaler on training data to avoid data leakage
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
+# convert back to dataframe so we can save as csv
+X_train_scaled = pd.DataFrame(X_train_scaled, columns=X.columns)
+X_test_scaled = pd.DataFrame(X_test_scaled, columns=X.columns)
+print("scaled the features")
 
-# ── 6. Main pipeline ──────────────────────────────────────────────────────────
+# save everything to the processed folder
+# create the folder if it doesnt exist
+if not os.path.exists("data/processed"):
+    os.makedirs("data/processed")
 
-def run_preprocessing(raw_dir="data/raw", processed_dir="data/processed"):
-    os.makedirs(processed_dir, exist_ok=True)
+X_train_scaled.to_csv("data/processed/X_train.csv", index=False)
+print("saved X_train.csv")
 
-    print("\n── Loading data ──")
-    df = load_data(raw_dir)
+X_test_scaled.to_csv("data/processed/X_test.csv", index=False)
+print("saved X_test.csv")
 
-    print("\n── Splitting features and target first ──")
-    X, y = split_features_target(df, target_col="Label")
+y_train.to_csv("data/processed/y_train.csv", index=False)
+print("saved y_train.csv")
 
-    print("\n── Cleaning data ──")
-    X, y = clean_data(X, y)
+y_test.to_csv("data/processed/y_test.csv", index=False)
+print("saved y_test.csv")
 
-    print("\n── Encoding categoricals ──")
-    X = encode_categoricals(X)
-
-    print("\n── Train/test split (80/20) ──")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    print(f"Train: {len(X_train):,} rows | Test: {len(X_test):,} rows")
-    print(f"y_train distribution:\n{y_train.value_counts()}")
-
-    print("\n── Scaling features ──")
-    X_train_scaled, X_test_scaled, scaler = scale_features(X_train, X_test)
-
-    print("\n── Saving to data/processed/ ──")
-    pd.DataFrame(X_train_scaled, columns=X.columns).to_csv(
-        os.path.join(processed_dir, "X_train.csv"), index=False
-    )
-    pd.DataFrame(X_test_scaled, columns=X.columns).to_csv(
-        os.path.join(processed_dir, "X_test.csv"), index=False
-    )
-    y_train.to_csv(os.path.join(processed_dir, "y_train.csv"), index=False)
-    y_test.to_csv(os.path.join(processed_dir, "y_test.csv"), index=False)
-
-    print("\nDone! Files saved to data/processed/")
-    return X_train_scaled, X_test_scaled, y_train, y_test
-
-
-if __name__ == "__main__":
-    run_preprocessing()
+print("done! all files saved to data/processed/")
